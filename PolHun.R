@@ -164,3 +164,80 @@ adat_sub$duration <- mondf(as.Date(adat_sub$startDate), as.Date(adat_sub$endDate
 adat_sub$ecc_bymonth <- adat_sub$ecContribution / adat_sub$duration
 
 write.csv(adat_sub, "ecc_date.csv")
+
+# sankey plot
+# coordinators and participants
+library(networkD3)
+
+setwd('c:/gergo/fp7')
+adat1 <- read.csv('cordis-fp7projects.csv', header=T, sep=";", dec=",")
+
+# van a projektben lengyel vagy magyar partner
+adat1 <- adat1[grep("PL|HU", adat1$participantCountries),]
+
+# EÜ kutprogrammból való projekt
+adat1 <- adat1[adat1$programme == "FP7-HEALTH",]
+
+adat1$participantCountries <- as.character(adat1$participantCountries)
+adat1$coordinatorCountry <- as.character(adat1$coordinatorCountry)
+
+adat2 <- read.csv('cordis-h2020projects.csv', header=T, sep=";", dec=",")
+
+# van a projektben legyel / magyar partner
+adat2 <- adat2[grep("PL|HU", adat2$participantCountries),]
+
+# egészségügyi célú kiírás
+adat2 <- adat2[grep(c("H2020-EU.3.1."), adat2$programme),]
+
+# ez az elsõdleges elemzési adatbázis
+adat <- rbind(adat1, adat2)[,c(1:5,18,20)]
+rm(list = c('adat1','adat2'))
+
+# redundant projects where no participant is listed
+adat$participantCountries[which(adat$participantCountries == "")] <- adat$coordinatorCountry[which(adat$participantCountries == "")] 
+
+# a participant-nél csak lengyel, magyar, vagy mindkettõ szerepeljen
+adat$participantCountries[which(grepl("PL", adat$participantCountries) & grepl("HU", adat$participantCountries))] <- "PL;HU"
+adat$participantCountries[-which(grepl("PL", adat$participantCountries))] <- "HU"
+adat$participantCountries[-which(grepl("HU", adat$participantCountries))] <- "PL"
+
+collect_edge <- NULL
+
+for( i in 1:nrow(adat))
+{
+  collect_edge <- rbind(collect_edge, cbind(paste0(as.character(adat$coordinatorCountry[i]),"_coord"), as.character(strsplit(as.character(adat$participantCountries), ";")[[i]])))
+}
+
+library(plyr)
+collect_edge <- count(collect_edge)
+colnames(collect_edge) <- c('source', 'target', 'value')
+
+collect_node <-as.data.frame(unique(c(as.character(collect_edge[,1]), as.character(collect_edge[,2]))))
+colnames(collect_node) <- "name"
+
+collect_edge$source <- as.character(collect_edge$source)
+collect_edge$target <- as.character(collect_edge$target)
+
+for( i in 1:nrow(collect_edge))
+{
+  collect_edge$source[i] <- which(collect_node$name %in% collect_edge$source[i])
+  collect_edge$target[i] <- which(collect_node$name %in% collect_edge$target[i])
+}
+
+collect_edge$source <- as.numeric(collect_edge$source) - 1
+collect_edge$target <- as.numeric(collect_edge$target) - 1
+
+Energy_new <- list(collect_node, collect_edge)
+names(Energy_new) <- c('nodes', 'links')
+
+windowsFonts(Times=windowsFont("Helvetica"))
+
+library(extrafont)
+loadfonts()
+
+par(font=list(family="Helvetica"))
+
+sankeyNetwork(Links = Energy_new$links, Nodes = Energy_new$nodes, Source = "source",
+              Target = "target", Value = "value", NodeID = "name",
+              fontSize = 12, nodeWidth = 40)
+dev.off()
